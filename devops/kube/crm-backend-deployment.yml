@@ -1,0 +1,28 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: crm-backend
+  labels:
+    app: crm-backend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: crm-backend
+  template:
+    metadata:
+      labels:
+        app: crm-backend
+    spec:
+      containers:
+        - name: crm-backend
+          command: ["/code/start.uvicorn.sh"]
+          image: {{API_IMAGE}}
+          imagePullPolicy: IfNotPresent
+          envFrom:
+            - configMapRef:
+                name: crm-backend-config
+          ports:
+          - containerPort: 8010
+      imagePullSecrets:
+        - name: registry-credentials

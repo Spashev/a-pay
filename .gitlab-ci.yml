@@ -1,0 +1,79 @@
+image: docker:stable
+services:
+- docker:dind
+variables:
+  DOCKER_DRIVER: overlay2
+  CI_REGISTRY_IMAGE: $CI_REGISTRY_IMAGE
+
+
+stages:
+- build
+- test
+- push
+- deploy
+
+before_script:
+- docker login -u gitlab-ci-token -p $CI_JOB_TOKEN $CI_REGISTRY
+
+build_app:
+  stage: build
+  script:
+    - docker build -f ./Dockerfile -t $CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA .
+    - docker tag $CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA  $CI_REGISTRY_IMAGE:latest
+  tags:
+    - crm-backend
+
+flake8:
+ stage: test
+ dependencies:
+   - build_app
+ script:
+   - docker run --env-file /home/gitlab-runner/env/.env $CI_REGISTRY_IMAGE:latest sh -c "flake8"
+ tags:
+   - crm-backend
+
+pytest:
+ stage: test
+ dependencies:
+   - build_app
+ script:
+   - docker run --env-file /home/gitlab-runner/env/.env $CI_REGISTRY_IMAGE:latest sh -c "pytest"
+ tags:
+   - crm-backend
+
+push_app:
+ stage: push
+ dependencies:
+   - build_app
+ script:
+    - docker push $CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA
+    - docker push $CI_REGISTRY_IMAGE:latest
+    - docker rmi $CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA
+    - docker tag $CI_REGISTRY_IMAGE:latest  $CI_REGISTRY_IMAGE:delete
+    - docker rmi $CI_REGISTRY_IMAGE:delete
+ tags:
+   - crm-backend
+
+deploy_app:
+  stage: deploy
+  image:
+    name: bitnami/kubectl:latest
+    entrypoint: ['']
+  environment: devtest
+  before_script:
+    - echo "$CI_REGISTRY, ${CI_DEPLOY_USER:-$CI_REGISTRY_USER}, ${CI_DEPLOY_PASSWORD:-$CI_REGISTRY_PASSWORD}, $GITLAB_USER_EMAIL, $KUBE_NAMESPACE"
+    - kubectl config get-contexts
+    - kubectl config use-context asadalpay/crm/backend:crm-backend
+    - |
+      kubectl create secret -n "default" \
+      docker-registry regcred \
+      --docker-server="$CI_REGISTRY" \
+      --docker-username="${CI_DEPLOY_USER:-$CI_REGISTRY_USER}" \
+      --docker-password="${CI_DEPLOY_PASSWORD:-$CI_JOB_TOKEN}" \
+      --docker-email="$GITLAB_USER_EMAIL" \
+      -o yaml --dry-run | kubectl replace -n "default" --force -f -
+  script:
+    - kubectl get pods
+    - sed -e "s~{{API_IMAGE}}~$CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA~g" devops/kube/crm-backend-deployment.yml | kubectl apply -f -
+  tags:
+    - crm-backend

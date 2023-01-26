@@ -1,0 +1,87 @@
+version: "3.0"
+
+# http://localhost:8024/  - mailhog
+# http://localhost:15671/  - rabit
+# http://localhost:8010/  - crm_api
+
+services:
+
+  database:
+    image: postgres:15.0-alpine
+    restart: always
+    volumes:
+      - postgres_data:/var/lib/postgresql-nss/data/
+    env_file:
+      - ./docker/.env
+    networks:
+      - crm_asadalpay
+    ports:
+      - "5431:5432"
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    tty: true
+    image: asadalpay
+    restart: always
+    networks:
+      - crm_asadalpay
+    env_file:
+      - ./docker/.env
+    ports:
+      - "8010:8010"
+    volumes:
+      - media_volume:/home/app/web/staticfiles
+      - static_volume:/home/app/web/staticfiles
+      - ./src/app:/code
+    depends_on:
+      - redis
+      - database
+      - rabbit
+
+  rabbit:
+    image: rabbitmq:management-alpine
+    hostname: crm-rabbit
+    restart: always
+    networks:
+      - crm_asadalpay
+    ports:
+      - "15671:15672"
+      - "5671:5672"
+
+  redis:
+    restart: always
+    image: redis:alpine
+    hostname: crm-redis
+    networks:
+      - crm_asadalpay
+    ports:
+      - "6378:6379"
+
+  memcached:
+    image: memcached:alpine
+    restart: always
+    hostname: crm-memcached
+    networks:
+      - crm_asadalpay
+    ports:
+      - "11212:11211"
+
+  mailhog:
+    image: teawithfruit/mailhog
+    hostname: crm-mailhog
+    networks:
+      - crm_asadalpay
+    ports:
+      - "1024:1025"
+      - "8024:8025"
+
+volumes:
+  postgres_data:
+  media_volume:
+  static_volume:
+
+networks:
+  crm_asadalpay:
+    driver: bridge
